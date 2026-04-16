@@ -56,10 +56,12 @@ lsof -ti :$MLX_PORT | xargs kill -9 2>/dev/null
 lsof -ti :$LITELLM_PROXY_PORT | xargs kill -9 2>/dev/null
 sleep 1
 
-# Using speculative decoding with greedy decoding and prompt caching for stability
+# Using speculative decoding with greedy decoding and prompt capping to prevent OOM
 mlx_lm.server --model "$MLX_MODEL" --port $MLX_PORT \
-    --temp 0.0 --max-tokens 2048 --num-draft-tokens 4 \
-    --use-default-chat-template --prompt-cache-size 1024 \
+    --draft-model "$DRAFT_MODEL" --num-draft-tokens 4 \
+    --temp 0.0 --max-tokens 2048 \
+    --use-default-chat-template \
+    --prompt-cache-size 16 --prompt-cache-bytes 12GB \
     > /tmp/mlx.log 2>&1 &
 MLX_PID=$!
 
