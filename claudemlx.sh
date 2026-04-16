@@ -4,16 +4,7 @@ MLX_PORT=8080
 export MLX_BASE_URL="http://0.0.0.0:$MLX_PORT/v1"
 LITELLM_PROXY_PORT=4000 # claude-code-proxy default
 
-# Model selection menu
-echo "------------------------------------------------"
-echo "🤖 Select your local model:"
-options=(
-    "Qwen 3.5 27B Claude-Opus Distilled (Reasoning Powerhouse)"
-    "Gemma 4 26B A4B Instruct (Next-Gen Speed)"
-)
-
 export MLX_MODEL="mlx-community/gemma-4-26b-a4b-it-4bit"
-export DRAFT_MODEL="mlx-community/Llama-3.1-8B-Instruct-4bit"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -56,9 +47,8 @@ lsof -ti :$MLX_PORT | xargs kill -9 2>/dev/null
 lsof -ti :$LITELLM_PROXY_PORT | xargs kill -9 2>/dev/null
 sleep 1
 
-# Using speculative decoding with greedy decoding and prompt capping to prevent OOM
+# Using greedy decoding and prompt capping to prevent OOM
 mlx_lm.server --model "$MLX_MODEL" --port $MLX_PORT \
-    --draft-model "$DRAFT_MODEL" --num-draft-tokens 4 \
     --temp 0.0 --max-tokens 2048 \
     --use-default-chat-template \
     --prompt-cache-size 16 --prompt-cache-bytes 12GB \
