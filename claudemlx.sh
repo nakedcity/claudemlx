@@ -1,106 +1,191 @@
 #!/bin/bash
-# Configuration
+set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Stability-first local Claude Code -> LiteLLM -> MLX launcher.
+# Values can be overridden from the environment, e.g.:
+#   MLX_MODEL="mlx-community/gemma-4-26b-a4b-it-4bit" ./claudemlx.sh
 
-# Cleanup function to kill background processes on exit
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+MLX_PID=""
+LLM_PID=""
+CLEANED_UP=0
+
+MLX_LOG="${MLX_LOG:-/tmp/mlx.log}"
+LITELLM_LOG="${LITELLM_LOG:-/tmp/litellm.log}"
+
 cleanup() {
-    echo -e "\n🛑 Shutting down services..."
-    # Kill the background loop subshell and its spawned server
-    if [ -n "$MLX_PID" ]; then
-        pkill -P "$MLX_PID" 2>/dev/null
-        kill "$MLX_PID" 2>/dev/null
+    if [ "$CLEANED_UP" -eq 1 ]; then
+        return
     fi
-    [ -n "$LLM_PID" ] && kill "$LLM_PID" 2>/dev/null
-    exit
+    CLEANED_UP=1
+
+    echo
+    echo "Shutting down services..."
+    if [ -n "$MLX_PID" ]; then
+        pkill -P "$MLX_PID" 2>/dev/null || true
+        kill "$MLX_PID" 2>/dev/null || true
+    fi
+    if [ -n "$LLM_PID" ]; then
+        pkill -P "$LLM_PID" 2>/dev/null || true
+        kill "$LLM_PID" 2>/dev/null || true
+    fi
+}
+
+require_command() {
+    local command_name=$1
+
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        echo "Missing required command: $command_name" >&2
+        echo "Install or expose it with uv, for example:" >&2
+        echo "  uv tool install mlx-lm" >&2
+        echo "  uv tool install litellm" >&2
+        echo "  npm install -g @anthropic-ai/claude-code" >&2
+        exit 1
+    fi
 }
 
 export_global_vars() {
-    
-    export MLX_PORT=8080
-    export MLX_BASE_URL="http://0.0.0.0:$MLX_PORT/v1"
-    # export MLX_MODEL="mlx-community/Qwen2.5-Coder-14B-Instruct-4bit"
-    # export MLX_MODEL="mlx-community/Devstral-Small-2505-4bit"
-    # So far best results model for agentic coding tasks locally m5 48GB in my experience
-    export MLX_MODEL="mlx-community/gemma-4-26b-a4b-it-4bit"
+    export MLX_PORT="${MLX_PORT:-8080}"
+    export MLX_HOST="${MLX_HOST:-127.0.0.1}"
+    export MLX_BASE_URL="${MLX_BASE_URL:-http://127.0.0.1:$MLX_PORT/v1}"
 
-    # LiteLLM config but also use for cognee
-    # see https://docs.cognee.ai/setup-configuration/llm-providers
-    export LLM_PROVIDER="custom"
-    # I see openrouter for compatibility with openai was the best option [I tried few more]
-    export LLM_MODEL="openrouter/$MLX_MODEL"
-    export LLM_API_KEY=""
-    export LLM_PORT=4000 # claude-code-proxy default
-    export LLM_ENDPOINT="http://0.0.0.0:$LLM_PORT"
-    
-    # Override for anthropic and openai for litellm
-    echo "OpenAI and Anthropic auth keys will be set to dummy values."
-    export ANTHROPIC_BASE_URL="http://0.0.0.0:$LLM_PORT"
-    export ANTHROPIC_API_KEY="dummy-key"
-    export ANTHROPIC_AUTH_TOKEN="dummy-token"
-    export OPENAI_API_KEY="sk-key"
-    export ANTHROPIC_MODEL="local-model"
+    # Override MLX_MODEL to experiment with other locally cached MLX models.
+    export MLX_MODEL="${MLX_MODEL:-mlx-community/gemma-2-9b-it-4bit}"
+
+    export MLX_MAX_TOKENS="${MLX_MAX_TOKENS:-2048}"
+    export MLX_TEMP="${MLX_TEMP:-0.0}"
+    export MLX_PROMPT_CONCURRENCY="${MLX_PROMPT_CONCURRENCY:-1}"
+    export MLX_DECODE_CONCURRENCY="${MLX_DECODE_CONCURRENCY:-1}"
+
+    # Qwen3.5 hybrid attention/Mamba models have shown cache-shape crashes in
+    # MLX-LM server mode. Keep them single-flight and disable prompt caching.
+    if [[ "$MLX_MODEL" == *Qwen3.5* || "$MLX_MODEL" == *qwen3_5* || "$MLX_MODEL" == *qwen3-5* ]]; then
+        export MLX_PREFILL_STEP_SIZE="${MLX_PREFILL_STEP_SIZE:-512}"
+        export MLX_PROMPT_CACHE_SIZE="${MLX_PROMPT_CACHE_SIZE:-0}"
+        export MLX_PROMPT_CACHE_BYTES="${MLX_PROMPT_CACHE_BYTES:-0GB}"
+    else
+        export MLX_PREFILL_STEP_SIZE="${MLX_PREFILL_STEP_SIZE:-1024}"
+        export MLX_PROMPT_CACHE_SIZE="${MLX_PROMPT_CACHE_SIZE:-2}"
+        export MLX_PROMPT_CACHE_BYTES="${MLX_PROMPT_CACHE_BYTES:-2GB}"
+    fi
+
+    export LLM_PROVIDER="${LLM_PROVIDER:-custom}"
+    # Keep openrouter here. In this local Claude Code bridge, switching this to
+    # openai can make LiteLLM/Claude auth routing fail.
+    export LLM_MODEL="${LLM_MODEL:-openrouter/$MLX_MODEL}"
+    export LLM_API_KEY="${LLM_API_KEY:-}"
+    export LLM_PORT="${LLM_PORT:-4000}"
+    export LLM_ENDPOINT="${LLM_ENDPOINT:-http://127.0.0.1:$LLM_PORT/v1}"
+
+    export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://127.0.0.1:$LLM_PORT}"
+    export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-dummy-key}"
+    export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-dummy-token}"
+    export OPENAI_API_KEY="${OPENAI_API_KEY:-sk-key}"
+    export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-local-model}"
+
+    # Global Claude settings on this machine currently request high effort.
+    # For local MLX, low effort is much faster and avoids unnecessary thinking.
+    export CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
+    export CLAUDE_BARE="${CLAUDE_BARE:-1}"
+    export CLAUDE_ADD_DIR="${CLAUDE_ADD_DIR:-$PWD}"
+    export CLAUDE_TOOLS="${CLAUDE_TOOLS:-default}"
+    export CLAUDE_APPEND_SYSTEM_PROMPT="${CLAUDE_APPEND_SYSTEM_PROMPT:-}"
+    export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}"
 }
-# Trap signals for cleanup
-trap cleanup EXIT SIGINT SIGTERM
-export_global_vars
- 
-# Server wrapper with auto-restart
+
 run_mlx_server() {
     while true; do
-        echo "[$(date +'%H:%M:%S')] 🚀 Starting MLX Server..." >> /tmp/mlx.log
-        mlx_lm.server --model "$MLX_MODEL" --port $MLX_PORT \
-            --temp 0.0 --max-tokens 2048 \
+        echo "[$(date +'%H:%M:%S')] Starting MLX server: $MLX_MODEL" >> "$MLX_LOG"
+        status=0
+        mlx_lm.server --model "$MLX_MODEL" --host "$MLX_HOST" --port "$MLX_PORT" \
+            --temp "$MLX_TEMP" --max-tokens "$MLX_MAX_TOKENS" \
             --use-default-chat-template \
-            --prefill-step-size 4096 \
-            --prompt-cache-size 32 --prompt-cache-bytes 16GB \
-            >> /tmp/mlx.log 2>&1
-        echo "[$(date +'%H:%M:%S')] ⚠️ MLX Server crashed. Restarting in 2s..." >> /tmp/mlx.log
+            --prefill-step-size "$MLX_PREFILL_STEP_SIZE" \
+            --prompt-concurrency "$MLX_PROMPT_CONCURRENCY" \
+            --decode-concurrency "$MLX_DECODE_CONCURRENCY" \
+            --prompt-cache-size "$MLX_PROMPT_CACHE_SIZE" \
+            --prompt-cache-bytes "$MLX_PROMPT_CACHE_BYTES" \
+            >> "$MLX_LOG" 2>&1 || status=$?
+        echo "[$(date +'%H:%M:%S')] MLX server exited with status $status. Restarting in 2s..." >> "$MLX_LOG"
         sleep 2
     done
 }
 
-# Helper to wait for a port to become active with process health monitoring
 wait_for_port() {
     local port=$1
     local name=$2
     local pid=$3
     local log_file=$4
-    
-    echo -n "⏳ Waiting for $name on port $port..."
-    while ! lsof -i :$port >/dev/null 2>&1; do
-        # Check if the background process is still alive
+
+    printf "Waiting for %s on port %s" "$name" "$port"
+    while ! lsof -i :"$port" >/dev/null 2>&1; do
         if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-            echo -e "\n❌ ERROR: $name (PID $pid) failed to start!"
-            echo "-------------------------- LOGS --------------------------"
-            [ -f "$log_file" ] && tail -n 20 "$log_file" || echo "Log file $log_file not found."
-            echo "----------------------------------------------------------"
+            echo
+            echo "ERROR: $name failed to start. Last log lines:"
+            [ -f "$log_file" ] && tail -n 40 "$log_file"
             exit 1
         fi
-        echo -n "."
+        printf "."
         sleep 2
     done
-    echo " Ready! ✅"
+    echo " ready"
 }
 
-echo "🧹 Cleaning up existing processes on ports $MLX_PORT and $LLM_PORT..."
-lsof -ti :$MLX_PORT | xargs kill -9 2>/dev/null
-lsof -ti :$LLM_PORT | xargs kill -9 2>/dev/null
+trap cleanup EXIT
+trap 'cleanup; exit 130' SIGINT
+trap 'cleanup; exit 143' SIGTERM
+
+require_command "mlx_lm.server"
+require_command "litellm"
+require_command "claude"
+
+export_global_vars
+
+echo "Stopping existing services on ports $MLX_PORT and $LLM_PORT..."
+lsof -ti :"$MLX_PORT" | xargs kill -9 2>/dev/null || true
+lsof -ti :"$LLM_PORT" | xargs kill -9 2>/dev/null || true
 sleep 1
 
-# Using greedy decoding and prompt capping for performance
-# Optimized for Devstral agentic reliability
+: > "$MLX_LOG"
+: > "$LITELLM_LOG"
+
 run_mlx_server &
 MLX_PID=$!
+wait_for_port "$MLX_PORT" "MLX Server" "$MLX_PID" "$MLX_LOG"
 
-wait_for_port $MLX_PORT "MLX Server" "$MLX_PID" "/tmp/mlx.log"
-
-
-litellm --config "$SCRIPT_DIR/config.yaml" > /tmp/litellm.log 2>&1 & 
+litellm --config "$SCRIPT_DIR/config.yaml" > "$LITELLM_LOG" 2>&1 &
 LLM_PID=$!
+wait_for_port "$LLM_PORT" "LiteLLM Proxy" "$LLM_PID" "$LITELLM_LOG"
 
-wait_for_port $LLM_PORT "LiteLLM Proxy" "$LLM_PID" "/tmp/litellm.log"
+cat <<EOF
+Services running.
+  MLX PID: $MLX_PID
+  LiteLLM PID: $LLM_PID
+  MLX model: $MLX_MODEL
+  LiteLLM model: $LLM_MODEL
+  MLX cache: $MLX_PROMPT_CACHE_SIZE entries / $MLX_PROMPT_CACHE_BYTES
+  MLX concurrency: prompt=$MLX_PROMPT_CONCURRENCY decode=$MLX_DECODE_CONCURRENCY
+  Claude effort: $CLAUDE_EFFORT
+  Claude bare mode: $CLAUDE_BARE
+  Claude add-dir: $CLAUDE_ADD_DIR
+  Claude tools: $CLAUDE_TOOLS
+  Claude append prompt: ${CLAUDE_APPEND_SYSTEM_PROMPT:+set}
+  Logs: $MLX_LOG and $LITELLM_LOG
 
-echo "✨ Services running. PIDs: MLX ($MLX_PID), LiteLLM ($LLM_PID)"
+EOF
 
-claude
+CLAUDE_ARGS=(
+    --model "$ANTHROPIC_MODEL"
+    --effort "$CLAUDE_EFFORT"
+    --add-dir "$CLAUDE_ADD_DIR"
+    --tools "$CLAUDE_TOOLS"
+)
+if [[ "$CLAUDE_BARE" == "1" || "$CLAUDE_BARE" == "true" || "$CLAUDE_BARE" == "yes" ]]; then
+    CLAUDE_ARGS+=(--bare)
+fi
+if [ -n "$CLAUDE_APPEND_SYSTEM_PROMPT" ]; then
+    CLAUDE_ARGS+=(--append-system-prompt "$CLAUDE_APPEND_SYSTEM_PROMPT")
+fi
+
+claude "${CLAUDE_ARGS[@]}" "$@"
