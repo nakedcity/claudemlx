@@ -37,10 +37,10 @@ This project transforms your Mac into a local "Sonnet-class" workspace by proxyi
     The script will start the MLX server, initialize the LiteLLM proxy, and launch the Claude CLI connected to your local model.
 
 ### ⚙️ Configuration
-The system is currently pre-configured for **Gemma-2-26B**, providing a balance of high intelligence and local speed. You can easily swap models by editing the `MLX_MODEL` variable in `claudemlx.sh`.
+The system is currently pre-configured for **Devstral-Small-2505**, providing the best-in-class reliability for agentic tool-calling and code issue resolution. You can easily swap models by editing the `MLX_MODEL` variable in `claudemlx.sh`.
 
 ```bash
-export MLX_MODEL="mlx-community/gemma-4-26b-a4b-it-4bit"
+export MLX_MODEL="mlx-community/Devstral-Small-2505-4bit"
 ```
 
 ## 📜 Professional History

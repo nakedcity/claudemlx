@@ -1,9 +1,11 @@
 model_list:
   - model_name: local-model
     litellm_params:
-      model: os.environ/LITELLM_MODEL
+      model: os.environ/LLM_MODEL
       api_base: os.environ/MLX_BASE_URL
       api_key: os.environ/OPENAI_API_KEY
+      frequency_penalty: 0.2
+      presence_penalty: 0.1
 
 litellm_settings:
   drop_params: true
