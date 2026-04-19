@@ -89,7 +89,7 @@ export_global_vars() {
     export CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
     export CLAUDE_BARE="${CLAUDE_BARE:-1}"
     export CLAUDE_ADD_DIR="${CLAUDE_ADD_DIR:-$PWD}"
-    export CLAUDE_TOOLS="${CLAUDE_TOOLS:-default}"
+    export CLAUDE_TOOLS="${CLAUDE_TOOLS:-Read,Glob,Grep,LSP,Write,Edit,Bash,Monitor,EnterPlanMode,ExitPlanMode,AskUserQuestion}"
     export CLAUDE_APPEND_SYSTEM_PROMPT="${CLAUDE_APPEND_SYSTEM_PROMPT:-}"
     export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}"
     export MAX_THINKING_TOKENS="${MAX_THINKING_TOKENS:-0}"
@@ -181,7 +181,7 @@ CLAUDE_ARGS=(
     --model "$ANTHROPIC_MODEL"
     --effort "$CLAUDE_EFFORT"
     --add-dir "$CLAUDE_ADD_DIR"
-    --tools "$CLAUDE_TOOLS"
+    --allowed-tools "$CLAUDE_TOOLS"
 )
 if [[ "$CLAUDE_BARE" == "1" || "$CLAUDE_BARE" == "true" || "$CLAUDE_BARE" == "yes" ]]; then
     CLAUDE_ARGS+=(--bare)
