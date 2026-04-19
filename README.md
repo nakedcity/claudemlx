@@ -1,153 +1,115 @@
 # claudemlx
 
-A local Claude Code bridge for Apple Silicon. `claudemlx.sh` starts an MLX-LM OpenAI-compatible server, puts LiteLLM in front of it, and launches Claude Code against the local proxy.
+A local Claude Code bridge for Apple Silicon. This repository provides two distinct ways to run a local LLM (via MLX) as an OpenAI-compatible endpoint and connect it to the Claude Code CLI.
 
-## What It Runs
+## Implementation Paths
 
-```text
-Claude Code CLI
-  -> LiteLLM proxy on http://127.0.0.1:4000
-  -> MLX-LM server on http://127.0.0.1:8080/v1
-  -> local MLX model
-```
+There are two primary ways to run the bridge, depending on your needs:
 
-The default local model is:
+### 1. Streamlined: `claude-cli.sh`
+A lightweight, single-process launcher using `vllm-mlx`. It is designed for speed and simplicity.
 
-```bash
-mlx-community/gemma-4-26b-a4b-it-4bit
-```
+- **Core Tech**: `vllm-mlx`
+- **Best For**: Quick, direct access to a single model with minimal overhead.
+- **Key Features**:
+  - Automatic selection of tool-call and reasoning parsers based on the model name.
+  - Direct forwarding of arguments to Claude Code.
+  - Built-in cleanup of existing listeners on the target port.
 
-Claude Code is pointed at the LiteLLM proxy with `ANTHROPIC_BASE_URL`, and the Claude-visible model name defaults to `local-model`.
+### 2. Robust: `claude-proxy-cli.sh`
+A stability-first, multi-process launcher using `mlx_lm.server` and `litellm`.
+
+- **Core Tech**: `mlx_lm.server` + `litellm`
+- **Best For**: A more stable, production-like environment with advanced routing and aliasing.
+- **Key Features**:
+  - **Model Aliasing**: Uses `config.yaml` to map multiple Claude-style names (e.g., `claude-opus-4-6`, `sonnet`) to your local MLX model.
+  - **Stability-First**: Includes automatic configuration for models (like Qwen3.5) to prevent cache-related crashes.
+  - **Process Management**: Manages both the MLX server and the LiteLLM proxy as background services.
+
+---
 
 ## Requirements
 
 - Apple Silicon Mac.
 - Python 3.10+.
-- `mlx_lm.server` available on `PATH`.
-- `litellm` available on `PATH`.
-- `claude` available on `PATH`.
+- `mlx_lm.server` (via `uv tool install mlx-lm`) or `vllm-mlx` (via `uv tool install vllm-mlx`) available on `PATH`.
+- `litellm` (via `uv tool install litellm`) available on `PATH`.
+- `claude` (via `npm install -g @anthropic-ai/claude-code`) available on `PATH`.
 
-The launcher prints install hints if a command is missing:
-
-```bash
-uv tool install mlx-lm
-uv tool install litellm
-npm install -g @anthropic-ai/claude-code
-```
+---
 
 ## Usage
 
+### Using the Streamlined Path (`claude-cli.sh`)
 ```bash
-chmod +x claudemlx.sh
-./claudemlx.sh
+chmod +x claude-cli.sh
+./claude-cli.sh
 ```
 
-Arguments passed to `claudemlx.sh` are forwarded to Claude Code:
-
+### Using the Robust Path (`claude-proxy-cli.sh`)
 ```bash
-./claudemlx.sh "hello"
+chmod +x claude-proxy-cli.sh
+./claude-proxy-cli.sh
 ```
 
-Before starting, the script stops existing listeners on the MLX and LiteLLM ports. It then truncates the log files, starts MLX-LM, waits for its port, starts LiteLLM, waits for its port, prints the active settings, and finally runs `claude`.
+Arguments passed to the scripts are forwarded to Claude Code.
 
-On exit, Ctrl-C, or SIGTERM, it cleans up the MLX and LiteLLM background processes.
+---
 
-## Defaults
+## Configuration & Defaults
 
-| Variable | Default | Purpose |
+Both scripts use environment variables for configuration. You can override these inline when launching.
+
+### Common Variables
+
+| Variable | Default (Proxy) | Purpose |
 | --- | --- | --- |
-| `MLX_HOST` | `127.0.0.1` | MLX-LM bind host. |
-| `MLX_PORT` | `8080` | MLX-LM port. |
-| `MLX_BASE_URL` | `http://127.0.0.1:$MLX_PORT/v1` | OpenAI-compatible MLX endpoint used by LiteLLM. |
-| `MLX_MODEL` | `mlx-community/gemma-4-26b-a4b-it-4bit` | Local MLX model to serve. |
-| `MLX_MAX_TOKENS` | `2048` | MLX-LM generation limit. |
-| `MLX_TEMP` | `0.0` | Greedy decoding by default. |
-| `MLX_PROMPT_CONCURRENCY` | `1` | MLX prompt concurrency. |
-| `MLX_DECODE_CONCURRENCY` | `1` | MLX decode concurrency. |
-| `MLX_PREFILL_STEP_SIZE` | `1024` | MLX prefill step size for most models. |
-| `MLX_PROMPT_CACHE_SIZE` | `2` | Prompt cache entries for most models. |
-| `MLX_PROMPT_CACHE_BYTES` | `2GB` | Prompt cache memory for most models. |
-| `LLM_PORT` | `4000` | LiteLLM proxy port. |
-| `LLM_MODEL` | `openrouter/$MLX_MODEL` | Provider-qualified model name passed through LiteLLM. |
-| `ANTHROPIC_BASE_URL` | `http://127.0.0.1:$LLM_PORT` | Claude Code API base URL. |
-| `ANTHROPIC_MODEL` | `local-model` | Model name Claude Code requests. |
+| `MLX_MODEL` | `mlx-community/gemma-4-26b-a4b-it-4bit` | The local MLX model to serve. |
+| `MLX_PORT` | `8080` | The port for the MLX server. |
+| `LLM_PORT` | `4000` | The port for the LiteLLM proxy. |
+| `ANTHROPIC_MODEL` | `local-model` | The model name Claude Code requests. |
 | `CLAUDE_EFFORT` | `low` | Claude Code effort setting. |
 | `CLAUDE_BARE` | `1` | Adds `--bare` by default. |
-| `CLAUDE_ADD_DIR` | current directory | Directory passed to Claude Code with `--add-dir`. |
-| `CLAUDE_TOOLS` | `default` | Claude Code tools setting. |
-| `MLX_LOG` | `/tmp/mlx.log` | MLX-LM log file. |
-| `LITELLM_LOG` | `/tmp/litellm.log` | LiteLLM log file. |
+| `CLAUDE_ADD_DIR` | `$PWD` | Directory passed to Claude Code with `--add-dir`. |
 
-Qwen3.5 model names get a safer cache profile automatically:
+### Example Overrides
 
-```bash
-MLX_PREFILL_STEP_SIZE=512
-MLX_PROMPT_CACHE_SIZE=0
-MLX_PROMPT_CACHE_BYTES=0GB
-```
-
-This avoids cache-shape crashes seen with hybrid attention/Mamba Qwen3.5 models in MLX-LM server mode.
-
-## Configuration
-
-Override settings inline when launching:
-
+**Change the model:**
 ```bash
 MLX_MODEL="mlx-community/Devstral-Small-2505-4bit" ./claudemlx.sh
 ```
 
-Use different ports:
-
+**Change ports:**
 ```bash
 MLX_PORT=8081 LLM_PORT=4001 ./claudemlx.sh
 ```
 
-Change Claude Code options:
-
+**Adjust Claude settings:**
 ```bash
-CLAUDE_EFFORT=low CLAUDE_BARE=0 CLAUDE_TOOLS=default ./claudemlx.sh
+CLAUDE_EFFORT=low CLAUDE_BARE=0 ./claudemlx.sh
 ```
 
-Append an extra system prompt:
+---
 
-```bash
-CLAUDE_APPEND_SYSTEM_PROMPT="Answer directly and avoid hidden reasoning." ./claudemlx.sh
-```
+## LiteLLM Model Aliases (Proxy Path Only)
 
-## LiteLLM Model Aliases
-
-`config.yaml` maps multiple Claude-style names to the same local MLX deployment:
+The `config.yaml` in the robust path allows you to use various Claude-style names to refer to your local model:
 
 - `local-model`
 - `claude-opus-4-6`
 - `claude-sonnet-4-6`
 - `claude-haiku-4-5`
-- `claude-haiku-4-5-20251001`
 - `haiku`
 - `sonnet`
 - `opus`
 
-Each alias uses:
+Each alias uses the environment variables `LLM_MODEL`, `MLX_BASE_URL`, and `OPENAI_API_KEY` to route requests through LiteLLM to your local MLX server.
 
-```yaml
-model: os.environ/LLM_MODEL
-api_base: os.environ/MLX_BASE_URL
-api_key: os.environ/OPENAI_API_KEY
-max_parallel_requests: 1
-timeout: 600
-```
-
-LiteLLM is configured with `drop_params: true` and a `request_timeout` of `600`.
+---
 
 ## Troubleshooting
 
-If Claude Code reports that no deployments are available, check the LiteLLM and MLX logs:
-
-```bash
-tail -n 120 /tmp/litellm.log
-tail -n 120 /tmp/mlx.log
-```
-
-That usually means the local MLX server rejected the request, LiteLLM marked the alias unavailable, and Claude Code retried against the cooled-down model group.
-
-If a port is already in use, the launcher kills existing listeners on `MLX_PORT` and `LLM_PORT` before starting fresh services.
+- **No deployments available**: If Claude Code reports no deployments, check the logs:
+  - `tail -n 120 /tmp/mlx.log`
+  - `tail -n 120 /tmp/litellm.log`
+- **Port conflicts**: Both scripts attempt to kill existing listeners on the target ports before starting. If you encounter issues, ensure no other processes are using the ports.

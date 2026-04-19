@@ -38,9 +38,7 @@ export_claude_vars() {
     export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-http://$VLLM_MLX_HOST:$VLLM_MLX_PORT}"
     export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-not-needed}"
     export CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
-    export CLAUDE_BARE="${CLAUDE_BARE:-1}"
     export CLAUDE_ADD_DIR="${CLAUDE_ADD_DIR:-$PWD}"
-    export CLAUDE_TOOLS="${CLAUDE_TOOLS:-default}"
     export CLAUDE_APPEND_SYSTEM_PROMPT="${CLAUDE_APPEND_SYSTEM_PROMPT:-}"
     export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}"
     export MAX_THINKING_TOKENS="${MAX_THINKING_TOKENS:-0}"
@@ -174,9 +172,7 @@ vLLM MLX running.
   Reasoning parser: ${VLLM_MLX_REASONING_PARSER:-disabled}
   Base URL: $ANTHROPIC_BASE_URL
   Claude effort: $CLAUDE_EFFORT
-  Claude bare mode: $CLAUDE_BARE
   Claude add-dir: $CLAUDE_ADD_DIR
-  Claude tools: $CLAUDE_TOOLS
   Claude append prompt: ${CLAUDE_APPEND_SYSTEM_PROMPT:+set}
   MAX_THINKING_TOKENS: $MAX_THINKING_TOKENS
   Log: $VLLM_MLX_LOG
@@ -187,11 +183,7 @@ CLAUDE_ARGS=(
     --model "$ANTHROPIC_MODEL"
     --effort "$CLAUDE_EFFORT"
     --add-dir "$CLAUDE_ADD_DIR"
-    --tools "$CLAUDE_TOOLS"
 )
-if [[ "$CLAUDE_BARE" == "1" || "$CLAUDE_BARE" == "true" || "$CLAUDE_BARE" == "yes" ]]; then
-    CLAUDE_ARGS+=(--bare)
-fi
 if [ -n "$CLAUDE_APPEND_SYSTEM_PROMPT" ]; then
     CLAUDE_ARGS+=(--append-system-prompt "$CLAUDE_APPEND_SYSTEM_PROMPT")
 fi
