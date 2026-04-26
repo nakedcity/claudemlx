@@ -10,7 +10,6 @@ VLLM_MLX_LOG="${VLLM_MLX_LOG:-/tmp/vllm-mlx.log}"
 CLAUDE_EFFORT="${CLAUDE_EFFORT:-high}"
 MAX_THINKING_TOKENS="${MAX_THINKING_TOKENS:-0}"
 
-M
 # --- Internal State ---
 VLLM_MLX_PID=""
 CLEANED_UP=0
